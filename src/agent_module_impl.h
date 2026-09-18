@@ -15,15 +15,21 @@ class AgentModuleImpl : public LogosModuleContext
 {
 public:
     // ── Agent Lifecycle ─────────────────────────────────────────
-    
+
     /// Returns the agent's current status as a JSON string.
-    /// Contains: identity, running skills, uptime, version.
     std::string getStatus();
 
     /// Initialize the agent with a JSON configuration string.
-    /// Config includes: owner_identity, ai_backend, spending_thresholds.
-    /// Returns JSON: { "success": bool, "agent_id": string }
+    /// Returns JSON: { "success": bool, "agent_id": string, "public_key": string }
     std::string initialize(const std::string& configJson);
+
+    // ── Identity ────────────────────────────────────────────────
+
+    /// Returns the agent's public identity as a JSON string.
+    /// Contains: public_key (hex), agent_id, messaging_address.
+    /// NOTE: MVP uses Ed25519. Will migrate to LEZ NPK/ISK when wallet
+    ///       module supports the universal LIDL interface.
+    std::string getIdentity();
 
     // ── Owner Channel ───────────────────────────────────────────
 
@@ -34,11 +40,9 @@ public:
     // ── Skills ──────────────────────────────────────────────────
 
     /// List available skills and their status.
-    /// Returns JSON array of { "name", "description", "enabled" }.
     std::string listSkills();
 
     /// Execute a skill by name with the given JSON parameters.
-    /// Returns JSON: { "success": bool, "result": ... }
     std::string executeSkill(const std::string& skillName,
                              const std::string& paramsJson);
 
@@ -54,11 +58,25 @@ logos_events:
     void statusChanged(const std::string& statusJson);
 
 protected:
-    /// Called once the module context (persistence paths, dependencies) is ready.
     void onContextReady() override;
 
 private:
-    bool m_initialized = false;
-    std::string m_agentId;
-    std::string m_ownerIdentity;
+    bool m_initialized = false;       // Whether initialize() has been called
+    std::string m_agentId;            // Short hex ID derived from public key
+    std::string m_ownerIdentity;      // Owner's public key
+
+    // Ed25519 public key as hex string (32 bytes = 64 hex chars).
+    // MVP placeholder — will migrate to LEZ NPK when wallet module
+    // supports universal LIDL interface.
+    std::string m_publicKeyHex;
+    // Ed25519 private key seed as hex string (32 bytes = 64 hex chars)
+    std::string m_privateKeyHex;
+    // Whether keypair was loaded/generated successfully
+    bool m_identityLoaded = false;
+
+    // Internal helpers — not exported as RPC methods
+    bool loadOrGenerateIdentity();
+    bool saveIdentity();
+    bool loadIdentity();
+    std::string toHex(const unsigned char* data, int len);
 };

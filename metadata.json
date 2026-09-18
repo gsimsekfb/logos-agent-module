@@ -11,15 +11,15 @@
 
   "nix": {
     "packages": {
-      "build": [],
-      "runtime": []
+      "build": ["openssl"],
+      "runtime": ["openssl"]
     },
     "external_libraries": [],
     "cmake": {
-      "find_packages": [],
+      "find_packages": ["OpenSSL"],
       "extra_sources": [],
       "extra_include_dirs": [],
-      "extra_link_libraries": []
+      "extra_link_libraries": ["OpenSSL::Crypto"]
     }
   }
 }
