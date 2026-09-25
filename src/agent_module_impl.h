@@ -1,7 +1,6 @@
 #pragma once
 
 #include "logos_module_context.h"
-#include <memory>
 #include <string>
 
 /**
@@ -15,6 +14,9 @@
 class AgentModuleImpl : public LogosModuleContext
 {
 public:
+    // Must be declared here and defined in .cpp so unique_ptr<OwnerChannel>
+    // sees the complete type at destruction (PIMPL pattern requirement).
+    ~AgentModuleImpl();
     // ── Agent Lifecycle ─────────────────────────────────────────
 
     /// Returns the agent's current status as a JSON string.
@@ -92,7 +94,7 @@ private:
     // ── Owner Channel state ──────────────────────────────────────
     // Forward-declared; defined in logos_lp_client.h, included only in .cpp
     struct OwnerChannel;
-    std::unique_ptr<OwnerChannel> m_ownerChannel;
+    OwnerChannel* m_ownerChannel = nullptr;
 
     // Internal helpers — not exported as RPC methods
     bool loadOrGenerateIdentity();

@@ -38,6 +38,10 @@ struct AgentModuleImpl::OwnerChannel {
       : client("chat_module", origin) {}
 };
 
+// Destructor must be here (not in header) so the raw pointer
+// sees the complete OwnerChannel type.
+AgentModuleImpl::~AgentModuleImpl() { delete m_ownerChannel; }
+
 // ── Identity persistence ────────────────────────────────────────
 
 /// Returns the full filesystem path for the identity JSON file,
@@ -221,8 +225,7 @@ std::string AgentModuleImpl::setupOwnerChannel(
 
   // Create or reuse the LpClient for the chat module
   if (!m_ownerChannel) {
-    m_ownerChannel =
-        std::make_unique<OwnerChannel>(moduleName());
+    m_ownerChannel = new OwnerChannel(moduleName());
   }
 
   // Create a private (E2E encrypted) conversation with the owner.
