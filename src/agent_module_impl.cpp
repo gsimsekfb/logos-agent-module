@@ -3,6 +3,10 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+// logos::LpClient — Qt-free client for calling any module by name over
+// the logos-protocol C ABI. No LIDL needed.
+#include "logos_lp_client.h"
+
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -19,6 +23,20 @@ std::string AgentModuleImpl::toHex(const unsigned char *data, int len) {
         << static_cast<int>(data[i]);
   return oss.str();
 }
+
+// ── Owner Channel internals ─────────────────────────────────────
+
+/// Holds the LpClient for Logos Messaging and the active subscription.
+/// Forward-declared in the header so the header stays Qt/protocol-free.
+struct AgentModuleImpl::OwnerChannel {
+  logos::LpClient client;             // talks to chat_module
+  logos::LpSubscription subscription; // incoming message events
+  std::string conversationId;         // active conversation ID
+  bool connected = false;             // whether channel is established
+
+  OwnerChannel(const std::string& origin)
+      : client("chat_module", origin) {}
+};
 
 // ── Identity persistence ────────────────────────────────────────
 
@@ -146,6 +164,9 @@ std::string AgentModuleImpl::getStatus() {
       << "\"initialized\": " << (m_initialized ? "true" : "false") << ", "
       << "\"identity_loaded\": " << (m_identityLoaded ? "true" : "false")
       << ", "
+      << "\"owner_channel_connected\": "
+      << (m_ownerChannel && m_ownerChannel->connected ? "true" : "false")
+      << ", "
       << "\"agent_id\": \"" << m_agentId << "\", "
       << "\"public_key\": \"" << m_publicKeyHex << "\", "
       << "\"version\": \"0.1.0\", "
@@ -191,7 +212,125 @@ std::string AgentModuleImpl::getIdentity() {
 
 // ── Owner Channel ───────────────────────────────────────────────
 
-std::string AgentModuleImpl::processOwnerCommand(const std::string &command) {
+std::string AgentModuleImpl::setupOwnerChannel(
+    const std::string& ownerIntroBundle) {
+  if (!m_initialized) {
+    return "{\"success\": false, \"error\": "
+           "\"Agent not initialized. Call initialize() first.\"}";
+  }
+
+  // Create or reuse the LpClient for the chat module
+  if (!m_ownerChannel) {
+    m_ownerChannel =
+        std::make_unique<OwnerChannel>(moduleName());
+  }
+
+  // Create a private (E2E encrypted) conversation with the owner.
+  // Args: [introBundleStr, contentHex]
+  // contentHex is the first message in hex-encoded form.
+  std::string welcomeHex;
+  {
+    std::string welcome = "Agent " + m_agentId + " connected";
+    std::ostringstream oss;
+    for (unsigned char c : welcome)
+      oss << std::hex << std::setfill('0') << std::setw(2)
+          << static_cast<int>(c);
+    welcomeHex = oss.str();
+  }
+
+  logos::CallError err;
+  auto result = m_ownerChannel->client.invoke(
+      "newPrivateConversation",
+      nlohmann::json::array({ownerIntroBundle, welcomeHex}),
+      &err
+  );
+
+  if (!err.code.empty()) {
+    std::ostringstream oss;
+    oss << "{\"success\": false, \"error\": \"" << err.message << "\"}";
+    return oss.str();
+  }
+
+  // Extract conversation ID from the result
+  if (result.is_object() && result.contains("id")) {
+    m_ownerChannel->conversationId = result["id"].get<std::string>();
+  } else if (result.is_string()) {
+    m_ownerChannel->conversationId = result.get<std::string>();
+  }
+
+  // Subscribe to incoming messages on the chat module.
+  // The chat module emits events when new messages arrive.
+  m_ownerChannel->subscription = m_ownerChannel->client.subscribe(
+      "messageReceived", 
+      [this](nlohmann::json payload) {
+        if (payload.is_array() && !payload.empty()) {
+          onChatMessage(payload.dump());
+        }
+      }
+  );
+
+  m_ownerChannel->connected = true;
+
+  std::ostringstream oss;
+  oss << "{\"success\": true, \"conversation_id\": \""
+      << m_ownerChannel->conversationId << "\"}";
+  return oss.str();
+}
+
+std::string AgentModuleImpl::sendToOwner(const std::string& message) {
+
+  // If the messaging channel is set up, send via Logos Messaging
+  if (m_ownerChannel && m_ownerChannel->connected &&
+      !m_ownerChannel->conversationId.empty()
+    ) {
+
+    // Hex-encode the message for the chat module API
+    std::ostringstream hexOss;
+    for (unsigned char c : message)
+      hexOss << std::hex << std::setfill('0') << std::setw(2)
+             << static_cast<int>(c);
+
+    logos::CallError err;
+    m_ownerChannel->client.invoke(
+      "sendMessage",
+      nlohmann::json::array(
+          {m_ownerChannel->conversationId, hexOss.str()}),
+      &err
+    );
+
+    if (err.code.empty()) {
+      return "{\"success\": true, \"via\": \"messaging\"}";
+    }
+    // Fall through to event-based delivery on failure
+  }
+
+  // Fallback: emit ownerResponse event for direct RPC subscribers
+  ownerResponse(message);
+  return "{\"success\": true, \"via\": \"event\"}";
+}
+
+std::string AgentModuleImpl::getOwnerChannelStatus() {
+  std::ostringstream oss;
+  oss << "{\"connected\": "
+      << (m_ownerChannel && m_ownerChannel->connected ? "true" : "false")
+      << ", \"conversation_id\": \"";
+  if (m_ownerChannel)
+    oss << m_ownerChannel->conversationId;
+  oss << "\"}";
+  return oss.str();
+}
+
+void AgentModuleImpl::onChatMessage(const std::string& messageJson) {
+  // Route incoming chat messages through the command processor.
+  // In production, we'd parse the JSON to extract the actual message
+  // content from the chat module's event payload.
+  std::string response = processOwnerCommand(messageJson);
+
+  // Send the response back via the messaging channel
+  sendToOwner(response);
+}
+
+std::string AgentModuleImpl::processOwnerCommand(const std::string& command) {
   if (!m_initialized) {
     return "{\"error\": \"Agent not initialized. Call initialize() first.\"}";
   }
@@ -203,6 +342,8 @@ std::string AgentModuleImpl::processOwnerCommand(const std::string &command) {
     response = listSkills();
   } else if (command.find("identity") != std::string::npos) {
     response = getIdentity();
+  } else if (command.find("channel") != std::string::npos) {
+    response = getOwnerChannelStatus();
   } else {
     response = executeSkill("echo", command);
   }
@@ -210,8 +351,7 @@ std::string AgentModuleImpl::processOwnerCommand(const std::string &command) {
   ownerResponse(response);
 
   std::ostringstream oss;
-  oss << "{"
-      << "\"command\": \"" << command << "\", "
+  oss << "{\"command\": \"" << command << "\", "
       << "\"response\": " << response << ", "
       << "\"actions_taken\": [\"processed_command\"]"
       << "}";

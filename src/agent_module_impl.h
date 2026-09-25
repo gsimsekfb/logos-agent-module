@@ -1,6 +1,7 @@
 #pragma once
 
 #include "logos_module_context.h"
+#include <memory>
 #include <string>
 
 /**
@@ -33,9 +34,23 @@ public:
 
     // ── Owner Channel ───────────────────────────────────────────
 
+    /// Set up the E2E encrypted owner channel via Logos Messaging.
+    /// `ownerIntroBundle` is the owner's intro bundle from the chat module.
+    /// Returns JSON: { "success": bool, "conversation_id": string }
+    std::string setupOwnerChannel(const std::string& ownerIntroBundle);
+
     /// Process an incoming owner command (natural language or structured).
-    /// Returns JSON: { "response": string, "actions_taken": [...] }
+    /// Works both via direct RPC and via the Logos Messaging channel.
+    /// Returns JSON: { "command": string, "response": ..., "actions_taken": [...] }
     std::string processOwnerCommand(const std::string& command);
+
+    /// Send a message to the owner via the Logos Messaging channel.
+    /// Falls back to emitting ownerResponse event if channel is not set up.
+    /// Returns JSON: { "success": bool, "via": "messaging"|"event" }
+    std::string sendToOwner(const std::string& message);
+
+    /// Returns the owner channel status as JSON.
+    std::string getOwnerChannelStatus();
 
     // ── Skills ──────────────────────────────────────────────────
 
@@ -74,9 +89,15 @@ private:
     // Whether keypair was loaded/generated successfully
     bool m_identityLoaded = false;
 
+    // ── Owner Channel state ──────────────────────────────────────
+    // Forward-declared; defined in logos_lp_client.h, included only in .cpp
+    struct OwnerChannel;
+    std::unique_ptr<OwnerChannel> m_ownerChannel;
+
     // Internal helpers — not exported as RPC methods
     bool loadOrGenerateIdentity();
     bool saveIdentity();
     bool loadIdentity();
     std::string toHex(const unsigned char* data, int len);
+    void onChatMessage(const std::string& messageJson);
 };
