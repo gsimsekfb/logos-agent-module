@@ -1,0 +1,13 @@
+{
+  "author": "LP-0008 Submission",
+  "category": "agent",
+  "dependencies": [],
+  "description": "Autonomous AI Agent Module for Logos Core (LP-0008)",
+  "main": {
+    "linux-amd64": "agent_module_plugin.so"
+  },
+  "manifestVersion": "0.2.0",
+  "name": "agent_module",
+  "type": "core",
+  "version": "0.1.0"
+}
