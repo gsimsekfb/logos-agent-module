@@ -19,3 +19,21 @@ logos_module(
         src/agent_module_impl.h
         src/agent_module_impl.cpp
 )
+
+# Precompile heavy third-party headers. logos_lp_client.h alone costs ~2.3s
+# to parse (Boost/Qt), which dominated every incremental compile.
+if(TARGET agent_module_module_plugin)
+    target_precompile_headers(agent_module_module_plugin PRIVATE
+        <logos_lp_client.h>
+        <logos_module_context.h>
+        <openssl/evp.h>
+        <openssl/rand.h>
+        <functional>
+        <fstream>
+        <iomanip>
+        <sstream>
+        <string>
+        <unordered_map>
+        <vector>
+    )
+endif()

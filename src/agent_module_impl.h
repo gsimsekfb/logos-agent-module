@@ -1,7 +1,10 @@
 #pragma once
 
 #include "logos_module_context.h"
+#include <functional>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 /**
  * AgentModuleImpl — Autonomous AI Agent for Logos Core (LP-0008)
@@ -95,6 +98,36 @@ private:
     // Forward-declared; defined in logos_lp_client.h, included only in .cpp
     struct OwnerChannel;
     OwnerChannel* m_ownerChannel = nullptr;
+
+    // ── Wallet Client state ─────────────────────────────────────
+    // Forward-declared; defined in .cpp. LpClient for the LEZ wallet module.
+    struct WalletClient;
+    WalletClient* m_walletClient = nullptr;
+
+    // ── Skill Registry ──────────────────────────────────────────
+    /// Describes a registered skill.
+    struct SkillDescriptor {
+        std::string name;
+        std::string description;
+        bool enabled = true;
+    };
+
+    /// Handler function type: takes paramsJson, returns result JSON.
+    using SkillHandler = std::function<std::string(const std::string&)>;
+
+    /// Ordered list of registered skills (for listSkills output).
+    std::vector<SkillDescriptor> m_skills;
+
+    /// Dispatch map: skill name → handler function.
+    std::unordered_map<std::string, SkillHandler> m_skillHandlers;
+
+    /// Registers the default built-in skills (echo, meta.status, wallet.balance).
+    void registerDefaultSkills();
+
+    // ── Skill handlers ──────────────────────────────────────────
+    std::string handleEcho(const std::string& paramsJson);
+    std::string handleMetaStatus(const std::string& paramsJson);
+    std::string handleWalletBalance(const std::string& paramsJson);
 
     // Internal helpers — not exported as RPC methods
     bool loadOrGenerateIdentity();

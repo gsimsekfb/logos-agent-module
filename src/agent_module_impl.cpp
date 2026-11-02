@@ -38,9 +38,27 @@ struct AgentModuleImpl::OwnerChannel {
       : client("chat_module", origin) {}
 };
 
-// Destructor must be here (not in header) so the raw pointer
-// sees the complete OwnerChannel type.
-AgentModuleImpl::~AgentModuleImpl() { delete m_ownerChannel; }
+/// Timeout for wallet RPCs. LpClient::invoke() defaults to the protocol's
+/// 20s timeout when 0 is passed — far too long when the wallet module is
+/// simply not loaded (standalone logoscore), and it equals the CLI's own
+/// call timeout, so the caller gives up before our fallback can answer.
+static constexpr int kWalletTimeoutMs = 3000;
+
+/// Holds the LpClient for querying the LEZ wallet module.
+/// Forward-declared in the header so the header stays Qt/protocol-free.
+struct AgentModuleImpl::WalletClient {
+  logos::LpClient client;
+
+  WalletClient(const std::string& origin)
+      : client("logos_execution_zone", origin) {}
+};
+
+// Destructor must be here (not in header) so the raw pointers
+// see the complete types.
+AgentModuleImpl::~AgentModuleImpl() {
+  delete m_ownerChannel;
+  delete m_walletClient;
+}
 
 // ── Identity persistence ────────────────────────────────────────
 
@@ -160,9 +178,21 @@ bool AgentModuleImpl::loadOrGenerateIdentity() {
 
 // ── Lifecycle ───────────────────────────────────────────────────
 
-void AgentModuleImpl::onContextReady() { loadOrGenerateIdentity(); }
+void AgentModuleImpl::onContextReady() {
+  loadOrGenerateIdentity();
+  registerDefaultSkills();
+}
 
 std::string AgentModuleImpl::getStatus() {
+  // Build skills array from registry
+  std::ostringstream skillsStr;
+  skillsStr << "[";
+  for (size_t i = 0; i < m_skills.size(); ++i) {
+    if (i > 0) skillsStr << ", ";
+    skillsStr << "\"" << m_skills[i].name << "\"";
+  }
+  skillsStr << "]";
+
   std::ostringstream oss;
   oss << "{"
       << "\"initialized\": " << (m_initialized ? "true" : "false") << ", "
@@ -174,7 +204,7 @@ std::string AgentModuleImpl::getStatus() {
       << "\"agent_id\": \"" << m_agentId << "\", "
       << "\"public_key\": \"" << m_publicKeyHex << "\", "
       << "\"version\": \"0.1.0\", "
-      << "\"skills\": [\"echo\"]"
+      << "\"skills\": " << skillsStr.str()
       << "}";
   return oss.str();
 }
@@ -347,6 +377,8 @@ std::string AgentModuleImpl::processOwnerCommand(const std::string& command) {
     response = getIdentity();
   } else if (command.find("channel") != std::string::npos) {
     response = getOwnerChannelStatus();
+  } else if (command.find("balance") != std::string::npos) {
+    response = executeSkill("wallet.balance", "{}");
   } else {
     response = executeSkill("echo", command);
   }
@@ -361,30 +393,170 @@ std::string AgentModuleImpl::processOwnerCommand(const std::string& command) {
   return oss.str();
 }
 
-// ── Skills ──────────────────────────────────────────────────────
+// ── Skill Registry ─────────────────────────────────────────────
+
+void AgentModuleImpl::registerDefaultSkills() {
+  // echo — simple echo skill (existed since 1.3)
+  m_skills.push_back({"echo", "Echoes input back", true});
+  m_skillHandlers["echo"] = [this](const std::string& p) {
+    return handleEcho(p);
+  };
+
+  // meta.status — reports agent state: identity, channel, balance, skills
+  m_skills.push_back({"meta.status",
+      "Reports agent state: identity, balance, storage, active tasks", true});
+  m_skillHandlers["meta.status"] = [this](const std::string& p) {
+    return handleMetaStatus(p);
+  };
+
+  // wallet.balance — queries shielded balance from the LEZ wallet module
+  m_skills.push_back({"wallet.balance",
+      "Returns the agent's shielded LEZ token balance", true});
+  m_skillHandlers["wallet.balance"] = [this](const std::string& p) {
+    return handleWalletBalance(p);
+  };
+}
+
+// ── Skill Handlers ─────────────────────────────────────────────
+
+std::string AgentModuleImpl::handleEcho(const std::string& paramsJson) {
+  std::ostringstream oss;
+  oss << "{\"success\": true, \"result\": \"Echo: " << paramsJson << "\"}";
+  return oss.str();
+}
+
+/// meta.status — enriched agent status per LP-0008 spec.
+/// Includes: balance (from wallet if available), storage usage, active tasks.
+std::string AgentModuleImpl::handleMetaStatus(const std::string& /*paramsJson*/) {
+  // Query wallet balance if possible (graceful fallback)
+  std::string balanceStr = "\"unavailable\"";
+  std::string balanceResult = handleWalletBalance("{}");
+  // Extract balance from the wallet.balance result
+  auto pos = balanceResult.find("\"balance\": ");
+  if (pos != std::string::npos) {
+    auto valStart = pos + 11; // length of "balance": 
+    auto valEnd = balanceResult.find_first_of(",}", valStart);
+    if (valEnd != std::string::npos) {
+      balanceStr = balanceResult.substr(valStart, valEnd - valStart);
+    }
+  }
+
+  // Build skills array from registry
+  std::ostringstream skillsStr;
+  skillsStr << "[";
+  for (size_t i = 0; i < m_skills.size(); ++i) {
+    if (i > 0) skillsStr << ", ";
+    skillsStr << "{\"name\": \"" << m_skills[i].name
+              << "\", \"enabled\": "
+              << (m_skills[i].enabled ? "true" : "false") << "}";
+  }
+  skillsStr << "]";
+
+  std::ostringstream oss;
+  oss << "{\"success\": true, \"result\": {"
+      << "\"initialized\": " << (m_initialized ? "true" : "false") << ", "
+      << "\"identity_loaded\": " << (m_identityLoaded ? "true" : "false")
+      << ", "
+      << "\"owner_channel_connected\": "
+      << (m_ownerChannel && m_ownerChannel->connected ? "true" : "false")
+      << ", "
+      << "\"agent_id\": \"" << m_agentId << "\", "
+      << "\"public_key\": \"" << m_publicKeyHex << "\", "
+      << "\"version\": \"0.1.0\", "
+      << "\"balance\": " << balanceStr << ", "
+      << "\"storage_usage\": \"unavailable\", "
+      << "\"active_tasks\": 0, "
+      << "\"skills\": " << skillsStr.str()
+      << "}}";
+  return oss.str();
+}
+
+/// wallet.balance — queries the LEZ wallet module via LpClient.
+/// Returns the shielded balance, or "unavailable" if the wallet module
+/// is not running (e.g., standalone logoscore testing).
+std::string AgentModuleImpl::handleWalletBalance(
+    const std::string& /*paramsJson*/) {
+  // Lazily create the wallet client on first use
+  if (!m_walletClient) {
+    m_walletClient = new WalletClient(moduleName());
+  }
+
+  // Call the wallet module's list_accounts first to find our account,
+  // then get_balance. For MVP, we try get_balance with a default account.
+  logos::CallError err;
+  auto result = m_walletClient->client.invoke(
+      "list_accounts", nlohmann::json::array(), &err, kWalletTimeoutMs);
+
+  if (!err.code.empty()) {
+    // Wallet module not available (expected in standalone logoscore)
+    return "{\"success\": true, \"balance\": \"unavailable\", "
+           "\"reason\": \"wallet module not connected\"}";
+  }
+
+  // Try to get balance from the first account
+  std::string accountId;
+  if (result.is_array() && !result.empty()) {
+    if (result[0].is_object() && result[0].contains("id")) {
+      accountId = result[0]["id"].get<std::string>();
+    } else if (result[0].is_string()) {
+      accountId = result[0].get<std::string>();
+    }
+  }
+
+  if (accountId.empty()) {
+    return "{\"success\": true, \"balance\": 0, "
+           "\"reason\": \"no accounts found\"}";
+  }
+
+  // get_balance(accountId, isPublic)
+  // isPublic = false for shielded balance
+  logos::CallError balErr;
+  auto balResult = m_walletClient->client.invoke(
+      "get_balance",
+      nlohmann::json::array({accountId, false}),
+      &balErr, kWalletTimeoutMs);
+
+  if (!balErr.code.empty()) {
+    return "{\"success\": true, \"balance\": \"unavailable\", "
+           "\"reason\": \"balance query failed\"}";
+  }
+
+  std::ostringstream oss;
+  oss << "{\"success\": true, \"balance\": " << balResult.dump()
+      << ", \"account_id\": \"" << accountId << "\"}";
+  return oss.str();
+}
+
+// ── Skills (public API) ────────────────────────────────────────
 
 std::string AgentModuleImpl::listSkills() {
-  return "[{\"name\": \"echo\", \"description\": \"Echoes input back\", "
-         "\"enabled\": true}]";
+  std::ostringstream oss;
+  oss << "[";
+  for (size_t i = 0; i < m_skills.size(); ++i) {
+    if (i > 0) oss << ", ";
+    oss << "{\"name\": \"" << m_skills[i].name
+        << "\", \"description\": \"" << m_skills[i].description
+        << "\", \"enabled\": " << (m_skills[i].enabled ? "true" : "false")
+        << "}";
+  }
+  oss << "]";
+  return oss.str();
 }
 
 std::string AgentModuleImpl::executeSkill(const std::string &skillName,
                                           const std::string &paramsJson) {
-  if (!m_initialized) {
-    return "{\"success\": false, \"error\": \"Agent not initialized\"}";
-  }
+  // Skill execution does not require initialize() — meta.status and
+  // wallet.balance should be callable for diagnostics even before init.
 
-  std::string result;
-
-  if (skillName == "echo") {
-    std::ostringstream oss;
-    oss << "{\"success\": true, \"result\": \"Echo: " << paramsJson << "\"}";
-    result = oss.str();
-  } else {
-    result =
+  auto it = m_skillHandlers.find(skillName);
+  if (it == m_skillHandlers.end()) {
+    std::string result =
         "{\"success\": false, \"error\": \"Unknown skill: " + skillName + "\"}";
+    skillCompleted(skillName, result);
+    return result;
   }
 
+  std::string result = it->second(paramsJson);
   skillCompleted(skillName, result);
   return result;
 }

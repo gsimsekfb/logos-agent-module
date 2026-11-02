@@ -12,7 +12,7 @@
   "nix": {
     "packages": {
       "build": ["openssl"],
-      "runtime": ["openssl"]
+      "runtime": ["openssl", "boost"]
     },
     "external_libraries": [],
     "cmake": {
