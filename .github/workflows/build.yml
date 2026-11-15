@@ -28,4 +28,16 @@ jobs:
         run: ls -l
 
       - name: ls -l result/lib/
-        run: ls -l
+        run: ls -l result/lib/
+
+      # Stage 2: inspect the plugin with lm and check the expected API is exported
+      - name: Plugin check (lm)
+        run: |
+          nix develop -c bash -c '"$LOGOS_MODULE_ROOT/bin/lm" result/lib/agent_module_plugin.so' | tee lm.txt
+          for name in getStatus initialize getIdentity \
+                      setupOwnerChannel processOwnerCommand sendToOwner getOwnerChannelStatus \
+                      listSkills executeSkill \
+                      ownerResponse skillCompleted statusChanged; do
+            grep -qw "$name" lm.txt || { echo "-- lm: MISSING: $name"; exit 1; }
+          done
+          echo "-- All expected methods/events found."
