@@ -37,7 +37,7 @@ jobs:
           for name in getStatus initialize getIdentity \
                       setupOwnerChannel processOwnerCommand sendToOwner getOwnerChannelStatus \
                       listSkills executeSkill \
-                      ownerResponse skillCompleted statusChanged aaa; do
+                      ownerResponse skillCompleted statusChanged; do
             grep -qw "$name" lm.txt || { echo "-- lm: MISSING: $name"; exit 1; }
           done
           echo "-- All expected methods/events found."
