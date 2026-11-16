@@ -57,5 +57,9 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"   # runner has no FUSE
           
-        run: logoscore daemon -m ~/logoscore-modules & sleep 3
-        run: logoscore status
+        run: |
+          logoscore daemon -m ~/logoscore-modules & sleep 3
+          logoscore status
+
+        # todo
+        # run: bash tests/smoke_logoscore.sh "$LOGOSCORE_BIN"
