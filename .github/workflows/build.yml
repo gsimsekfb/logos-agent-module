@@ -46,7 +46,7 @@ jobs:
       - name: Install logoscore
         run: |
           curl -fsSL -o logoscore.tar.gz \
-            https://github.com/logos-co/logos-logoscore-cli/releases/download/v0.2.2/logoscore-x86_64-linux.tar.gz
+              https://github.com/logos-co/logos-logoscore-cli/releases/download/0.2.2/logoscore-x86_64-linux.tar.gz
           tar -xzf logoscore.tar.gz
           mkdir -p "$HOME/.local/bin"
           mv logoscore-x86_64.AppImage "$HOME/.local/bin/logoscore"
