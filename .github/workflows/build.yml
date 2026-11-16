@@ -21,7 +21,7 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Build module
+      - name: Build agent_module
         run: nix build -L
 
       - name: ls -l
@@ -63,13 +63,28 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"   # runner has no FUSE
         run: logoscore daemon -m ~/logoscore-modules & sleep 3
 
-      - name: aa
+      - name: logoscore status
         run: logoscore status
 
-      - name: aa
+      - name: logoscore load-module agent_module
         run: logoscore load-module agent_module & sleep 1
 
-      - name: aa
+      - name: agent_module listSkills 
+        run: |
+          logoscore --human call agent_module listSkills | jq -e '([.[].name] \
+            | contains(["echo", "meta.status", "wallet.balance"]))'
+
+      - name: agent_module meta.status 
+        run: |
+          logoscore --human call agent_module executeSkill meta.status \
+            '{}' | jq | grep '"identity_loaded": true'
+
+      - name: agent_module wallet.balance 
+        run: |
+          logoscore --human call agent_module executeSkill wallet.balance \
+            '{}' | jq | grep "not connected"  
+
+      - name: agent_module echo
         run: logoscore call agent_module executeSkill echo aaa | grep aaa
 
         # todo
