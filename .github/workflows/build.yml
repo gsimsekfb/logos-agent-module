@@ -3,20 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - '**/*.h'
+      - '**/*.cpp'
   pull_request:
-  workflow_dispatch:
-
-# todo: CI runs only when .h or .cpp files change
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - '**/*.h'
-  #     - '**/*.cpp'
-  # pull_request:
-  #   paths:
-  #     - '**/*.h'
-  #     - '**/*.cpp'
-  # workflow_dispatch:  
+    paths:
+      - '**/*.h'
+      - '**/*.cpp'
+  workflow_dispatch:  
 
 jobs:
   build:
@@ -98,6 +92,3 @@ jobs:
 
       - name: agent_module echo
         run: logoscore call agent_module executeSkill echo aaa | grep aaa
-
-        # todo
-        # run: bash tests/smoke_logoscore.sh "$LOGOSCORE_BIN"
