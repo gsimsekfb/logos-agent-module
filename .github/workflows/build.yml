@@ -6,6 +6,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+# todo: CI runs only when .h or .cpp files change
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - '**/*.h'
+  #     - '**/*.cpp'
+  # pull_request:
+  #   paths:
+  #     - '**/*.h'
+  #     - '**/*.cpp'
+  # workflow_dispatch:  
+
 jobs:
   build:
     name: e2e test
@@ -71,8 +83,8 @@ jobs:
 
       - name: agent_module listSkills 
         run: |
-          logoscore --human call agent_module listSkills | jq -e '([.[].name] \
-            | contains(["echo", "meta.status", "wallet.balance"]))'
+          logoscore --human call agent_module listSkills |
+            jq -e '([.[].name] | contains(["echo", "meta.status", "wallet.balance"]))'
 
       - name: agent_module meta.status 
         run: |
