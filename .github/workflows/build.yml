@@ -41,3 +41,21 @@ jobs:
             grep -qw "$name" lm.txt || { echo "-- lm: MISSING: $name"; exit 1; }
           done
           echo "-- All expected methods/events found."
+
+      # Stage 4: run the plugin in a real logoscore daemon and call the skills
+      - name: Install logoscore
+        run: |
+          curl -fsSL -o logoscore.tar.gz \
+            https://github.com/logos-co/logos-logoscore-cli/releases/download/v0.2.2/logoscore-x86_64-linux.tar.gz
+          tar -xzf logoscore.tar.gz
+          mkdir -p "$HOME/.local/bin"
+          mv logoscore-x86_64.AppImage "$HOME/.local/bin/logoscore"
+          chmod +x "$HOME/.local/bin/logoscore"
+          echo "LOGOSCORE_BIN=$HOME/.local/bin/logoscore" >> "$GITHUB_ENV"
+
+      - name: Runtime smoke test (logoscore)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"   # runner has no FUSE
+          
+        run: logoscore daemon -m ~/logoscore-modules & sleep 3
+        run: logoscore status
