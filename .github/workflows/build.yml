@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Nix build
+    name: e2e test
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -53,6 +53,11 @@ jobs:
           chmod +x "$HOME/.local/bin/logoscore"
           echo "LOGOSCORE_BIN=$HOME/.local/bin/logoscore" >> "$GITHUB_ENV"
 
+      - name: Install agent_module
+        run: |
+          mkdir -p ~/logoscore-modules/agent_module
+          cp result/lib/agent_module_plugin.so manifest.json ~/logoscore-modules/agent_module/
+    
       - name: Runtime smoke test (logoscore)
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"   # runner has no FUSE
