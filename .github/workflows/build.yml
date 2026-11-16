@@ -56,10 +56,16 @@ jobs:
       - name: Runtime smoke test (logoscore)
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"   # runner has no FUSE
-          
-        run: |
-          logoscore daemon -m ~/logoscore-modules & sleep 3
-          logoscore status
+        run: logoscore daemon -m ~/logoscore-modules & sleep 3
+
+      - name: aa
+        run: logoscore status
+
+      - name: aa
+        run: logoscore load-module agent_module & sleep 1
+
+      - name: aa
+        run: logoscore call agent_module executeSkill echo aaa | grep aaa
 
         # todo
         # run: bash tests/smoke_logoscore.sh "$LOGOSCORE_BIN"
