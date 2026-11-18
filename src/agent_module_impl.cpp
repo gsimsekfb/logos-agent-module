@@ -434,7 +434,7 @@ std::string AgentModuleImpl::handleMetaStatus(const std::string& /*paramsJson*/)
   // Extract balance from the wallet.balance result
   auto pos = balanceResult.find("\"balance\": ");
   if (pos != std::string::npos) {
-    auto valStart = pos + 11; // length of "balance": 
+    auto valStart = pos + 11; // length of "balance":
     auto valEnd = balanceResult.find_first_of(",}", valStart);
     if (valEnd != std::string::npos) {
       balanceStr = balanceResult.substr(valStart, valEnd - valStart);
